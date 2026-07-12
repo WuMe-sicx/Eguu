@@ -1,9 +1,14 @@
 import type { GlobalConfig } from 'payload'
 
 import { isEditor, publishedOrLoggedIn } from '../access'
+import { previewURL } from '../lib/preview'
 
 export const Contact: GlobalConfig = {
   slug: 'contact',
+  admin: {
+    preview: (_doc, { locale }) =>
+      previewURL('contact', `/${typeof locale === 'string' ? locale : 'zh'}/contact`),
+  },
   // 匿名只读已发布(where 会 append 到 draft 版本查询 → 匿名拿不到草稿)
   access: { read: publishedOrLoggedIn, update: isEditor, readVersions: isEditor },
   versions: { drafts: true },

@@ -1,7 +1,16 @@
 // @vitest-environment node
 // 阶段4a 页面级取数(src/lib/content.ts)回归:相关/服务筛选、排除自身、仅已发布、草稿不可见。
 import { getPayload, type Payload } from 'payload'
-import { beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it, vi } from 'vitest'
+
+// content.ts 详情/全局 helper 依赖 draftMode()+headers()(Next 请求 API,vitest 无请求上下文)。
+// 用可切换 mock 模拟:preview=draftMode cookie 是否在;cookie=当前会话(payload-token)。
+// 二者共同决定是否走预览分支,直接回归 §18「草稿只对活跃登录管理员可见」不变量。
+const draftState = vi.hoisted(() => ({ preview: false, cookie: '' }))
+vi.mock('next/headers', () => ({
+  draftMode: async () => ({ isEnabled: draftState.preview }),
+  headers: async () => new Headers(draftState.cookie ? { cookie: draftState.cookie } : {}),
+}))
 
 import {
   getCaseBySlug,
@@ -69,6 +78,7 @@ async function publish(
 describe('阶段4a content 取数', () => {
   let svcAId: number
   let svcBId: number
+  let adminToken = ''
 
   beforeAll(async () => {
     payload = await getPayload({ config })
@@ -144,6 +154,18 @@ describe('阶段4a content 取数', () => {
       draft: true,
       data: { slug: S.newsDraft, title: '草稿新闻', excerpt: '摘', body: rt('正文'), _status: 'draft' },
     })
+
+    // 预览分支需活跃会话:建 editor 并登录取 token(模拟带会话的预览请求)
+    await payload.delete({ collection: 'admins', where: { email: { equals: 'prev@content.test' } } })
+    await payload.create({
+      collection: 'admins',
+      data: { name: 'Prev', email: 'prev@content.test', password: 'pw123456', roles: ['editor'] },
+    })
+    const login = await payload.login({
+      collection: 'admins',
+      data: { email: 'prev@content.test', password: 'pw123456' },
+    })
+    adminToken = login.token ?? ''
   })
 
   it('getCaseBySlug:草稿返回 null,已发布返回记录', async () => {
@@ -187,5 +209,27 @@ describe('阶段4a content 取数', () => {
     expect(slugs).toContain(S.svcA)
     expect(slugs).toContain(S.svcB)
     expect(slugs).not.toContain(S.svcDraft) // 草稿服务不出现在公开列表
+  })
+
+  it('§18:草稿只对「draftMode + 活跃 admin/editor 会话」可见', async () => {
+    draftState.preview = true
+    try {
+      // draftMode + 有效会话 → 草稿可见
+      draftState.cookie = `payload-token=${adminToken}`
+      expect((await getCaseBySlug(S.caseDraft, 'zh'))?.slug).toBe(S.caseDraft)
+
+      // draft cookie 仍在但无会话(登出 / cookie 重放)→ 草稿不可见(绑定会话,非仅认 draft cookie)
+      draftState.cookie = ''
+      expect(await getCaseBySlug(S.caseDraft, 'zh')).toBeNull()
+
+      // 无效/伪造 token → 同样不可见
+      draftState.cookie = 'payload-token=forged.invalid.token'
+      expect(await getCaseBySlug(S.caseDraft, 'zh')).toBeNull()
+    } finally {
+      draftState.preview = false
+      draftState.cookie = ''
+    }
+    // 公开态 → 草稿不可见
+    expect(await getCaseBySlug(S.caseDraft, 'zh')).toBeNull()
   })
 })

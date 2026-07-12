@@ -1,9 +1,13 @@
 import type { GlobalConfig } from 'payload'
 
 import { isEditor, publishedOrLoggedIn } from '../access'
+import { previewURL } from '../lib/preview'
 
 export const Home: GlobalConfig = {
   slug: 'home',
+  admin: {
+    preview: (_doc, { locale }) => previewURL('home', `/${typeof locale === 'string' ? locale : 'zh'}`),
+  },
   // read 用 publishedOrLoggedIn:匿名得到 where{_status:published},该 where 会被 append 到 draft
   // 版本查询上 → 匿名 ?draft=true 也拿不到草稿;登录内容角色可读草稿。
   access: { read: publishedOrLoggedIn, update: isEditor, readVersions: isEditor },

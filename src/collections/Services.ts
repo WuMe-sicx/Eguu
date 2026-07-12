@@ -3,12 +3,17 @@ import type { CollectionConfig } from 'payload'
 import { isAdmin, isEditor, publishedOrLoggedIn } from '../access'
 import { slugField } from '../fields/slug'
 import { requireBilingual } from '../hooks/requireBilingual'
+import { previewURL } from '../lib/preview'
 
 export const Services: CollectionConfig = {
   slug: 'services',
   admin: {
     useAsTitle: 'title',
     defaultColumns: ['title', '_status'],
+    preview: (doc, { locale }) =>
+      typeof doc?.slug === 'string'
+        ? previewURL('services', `/${typeof locale === 'string' ? locale : 'zh'}/services/${doc.slug}`)
+        : null,
   },
   orderable: true,
   versions: { drafts: true },

@@ -16,5 +16,6 @@ export function proxy(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!api|admin|_next|.*\\.).*)'],
+  // 排除 preview/exit-preview:草稿预览路由不走语言重定向(§18)
+  matcher: ['/((?!api|admin|_next|preview|exit-preview|.*\\.).*)'],
 }

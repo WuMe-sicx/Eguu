@@ -4,12 +4,17 @@ import { APIError } from 'payload'
 import { isAdmin, isEditor, publishedOrLoggedIn } from '../access'
 import { slugField } from '../fields/slug'
 import { requireBilingual } from '../hooks/requireBilingual'
+import { previewURL } from '../lib/preview'
 
 export const News: CollectionConfig = {
   slug: 'news',
   admin: {
     useAsTitle: 'title',
     defaultColumns: ['title', 'publishedAt', '_status'],
+    preview: (doc, { locale }) =>
+      typeof doc?.slug === 'string'
+        ? previewURL('news', `/${typeof locale === 'string' ? locale : 'zh'}/news/${doc.slug}`)
+        : null,
   },
   defaultSort: '-publishedAt',
   versions: { drafts: true },

@@ -4,6 +4,7 @@ import { APIError } from 'payload'
 import { isAdmin, isEditor, publishedOrLoggedIn } from '../access'
 import { slugField } from '../fields/slug'
 import { requireBilingual } from '../hooks/requireBilingual'
+import { previewURL } from '../lib/preview'
 import { isAllowedVideoId } from '../lib/validators'
 
 export const Cases: CollectionConfig = {
@@ -11,6 +12,10 @@ export const Cases: CollectionConfig = {
   admin: {
     useAsTitle: 'title',
     defaultColumns: ['title', 'client', '_status'],
+    preview: (doc, { locale }) =>
+      typeof doc?.slug === 'string'
+        ? previewURL('cases', `/${typeof locale === 'string' ? locale : 'zh'}/work/${doc.slug}`)
+        : null,
   },
   orderable: true,
   versions: { drafts: true },
