@@ -2,6 +2,7 @@ import type { CollectionConfig } from 'payload'
 
 import { isAdmin, isEditor, publishedOrLoggedIn } from '../access'
 import { slugField } from '../fields/slug'
+import { requireBilingual } from '../hooks/requireBilingual'
 
 export const Services: CollectionConfig = {
   slug: 'services',
@@ -26,4 +27,7 @@ export const Services: CollectionConfig = {
     { name: 'summary', type: 'textarea', required: true, localized: true },
     { name: 'detail', type: 'richText', required: true, localized: true },
   ],
+  hooks: {
+    beforeValidate: [requireBilingual(['title', 'summary', 'detail'])],
+  },
 }

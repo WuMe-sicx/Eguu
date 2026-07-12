@@ -34,6 +34,14 @@ export const Media: CollectionConfig = {
   },
   upload: {
     mimeTypes: ALLOWED_MIME,
+    focalPoint: true,
+    adminThumbnail: 'thumbnail',
+    // 尺寸变体(§13):next/image 按 sizes 取档;视频不生成变体(sharp 仅处理图片)
+    imageSizes: [
+      { name: 'thumbnail', width: 400, height: 300, position: 'centre' },
+      { name: 'card', width: 768 }, // 等比,列表卡片
+      { name: 'hero', width: 1920 }, // 等比,首屏大图
+    ],
   },
   fields: [{ name: 'alt', type: 'text', required: true, localized: true }],
   hooks: {

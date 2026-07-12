@@ -12,6 +12,26 @@ let payload: Payload
 
 const asUser = <T extends object>(doc: T) => ({ ...doc, collection: 'admins' as const })
 
+const rt = (text: string) => ({
+  root: {
+    type: 'root',
+    format: '' as const,
+    indent: 0,
+    version: 1,
+    direction: 'ltr' as const,
+    children: [
+      {
+        type: 'paragraph',
+        format: '' as const,
+        indent: 0,
+        version: 1,
+        direction: 'ltr' as const,
+        children: [{ type: 'text', format: 0, style: '', mode: 'normal', detail: 0, version: 1, text }],
+      },
+    ],
+  },
+})
+
 describe('阶段1 安全边界', () => {
   beforeAll(async () => {
     payload = await getPayload({ config })
@@ -20,6 +40,8 @@ describe('阶段1 安全边界', () => {
       await payload.delete({ collection: 'admins', where: { email: { equals: email } } })
     }
     await payload.delete({ collection: 'cases', where: { slug: { equals: 'sec-draft-case' } } })
+    await payload.delete({ collection: 'services', where: { slug: { equals: 'bi-test' } } })
+    await payload.delete({ collection: 'services', where: { slug: { equals: 'bi-empty' } } })
   })
 
   it('匿名 ?draft=true 读不到 global 草稿', async () => {
@@ -102,6 +124,57 @@ describe('阶段1 安全边界', () => {
         overrideAccess: false,
         data: { name: 'x', email: 'x@x.co', consent: true },
       }),
+    ).rejects.toThrow()
+  })
+
+  it('发布前中英必填:仅 zh 拒绝,补 en 后放行', async () => {
+    const draft = await payload.create({
+      collection: 'services',
+      locale: 'zh',
+      draft: true,
+      data: { slug: 'bi-test', title: '仅中文', summary: '摘要', detail: rt('内容'), _status: 'draft' },
+    })
+    // en 缺 → 发布被拒
+    await expect(
+      payload.update({ collection: 'services', id: draft.id, locale: 'zh', data: { _status: 'published' } }),
+    ).rejects.toThrow()
+    // 补 en 草稿后 → 发布放行
+    await payload.update({
+      collection: 'services',
+      id: draft.id,
+      locale: 'en',
+      draft: true,
+      data: { title: 'EN Only', summary: 'sum', detail: rt('body') },
+    })
+    const pub = await payload.update({
+      collection: 'services',
+      id: draft.id,
+      locale: 'zh',
+      data: { _status: 'published' },
+    })
+    expect(pub._status).toBe('published')
+  })
+
+  it('发布前中英必填:en richText 为空编辑器也拒绝', async () => {
+    const emptyRt = {
+      root: { type: 'root', format: '', indent: 0, version: 1, direction: null, children: [] },
+    } as unknown as ReturnType<typeof rt>
+    const draft = await payload.create({
+      collection: 'services',
+      locale: 'zh',
+      draft: true,
+      data: { slug: 'bi-empty', title: '中', summary: '摘', detail: rt('内容'), _status: 'draft' },
+    })
+    // en 的 detail 是空编辑器(有对象但无文本)→ 仍应拒绝发布
+    await payload.update({
+      collection: 'services',
+      id: draft.id,
+      locale: 'en',
+      draft: true,
+      data: { title: 'EN', summary: 'sum', detail: emptyRt },
+    })
+    await expect(
+      payload.update({ collection: 'services', id: draft.id, locale: 'zh', data: { _status: 'published' } }),
     ).rejects.toThrow()
   })
 })

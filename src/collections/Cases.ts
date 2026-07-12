@@ -3,6 +3,7 @@ import { APIError } from 'payload'
 
 import { isAdmin, isEditor, publishedOrLoggedIn } from '../access'
 import { slugField } from '../fields/slug'
+import { requireBilingual } from '../hooks/requireBilingual'
 import { isAllowedVideoId } from '../lib/validators'
 
 export const Cases: CollectionConfig = {
@@ -64,6 +65,7 @@ export const Cases: CollectionConfig = {
   ],
   hooks: {
     beforeValidate: [
+      requireBilingual(['title', 'client', 'intro']),
       ({ data }) => {
         if (!data) return data
         const published = data._status === 'published'

@@ -3,6 +3,7 @@ import { APIError } from 'payload'
 
 import { isAdmin, isEditor, publishedOrLoggedIn } from '../access'
 import { slugField } from '../fields/slug'
+import { requireBilingual } from '../hooks/requireBilingual'
 
 export const News: CollectionConfig = {
   slug: 'news',
@@ -33,6 +34,7 @@ export const News: CollectionConfig = {
   ],
   hooks: {
     beforeValidate: [
+      requireBilingual(['title', 'excerpt', 'body']),
       ({ data }) => {
         // 发布必填 publishedAt(草稿可空)
         if (data?._status === 'published' && !data.publishedAt) {
