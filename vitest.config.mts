@@ -8,5 +8,7 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     include: ['tests/int/**/*.int.spec.ts'],
+    // 集成测试共用一个库:串行执行,避免多文件并行首启同时 push schema 竞争(CREATE TYPE _locales)
+    fileParallelism: false,
   },
 })
