@@ -83,13 +83,13 @@ async function seed() {
     { title: 'Film Production', summary: 'Cinematic commercials and brand films.', detail: rt('One-stop film production from script to final cut.') },
   )
 
-  await createBilingual(
+  const caseA = await createBilingual(
     'cases',
     { slug: 'grain-brand-launch', client: '某品牌', services: [brand.id, film.id] },
     { title: '显影 × 某品牌 发布战役', client: '某品牌', intro: rt('一场围绕新品发布的整合创意战役。') },
     { title: 'GRAIN × Brand Launch Campaign', client: 'A Brand', intro: rt('An integrated creative campaign around a product launch.') },
   )
-  await createBilingual(
+  const caseB = await createBilingual(
     'cases',
     { slug: 'city-nightscape', client: '城市文旅', services: [film.id] },
     { title: '城市夜行 短片', client: '城市文旅', intro: rt('用镜头记录城市的夜色与呼吸。') },
@@ -122,7 +122,7 @@ async function seed() {
 
   await publishGlobal(
     'home',
-    { hero: { title: '制造注意力', subtitle: '电影级创意,作品即主角。' }, featuredServices: [brand.id, film.id], featuredCases: [] },
+    { hero: { title: '制造注意力', subtitle: '电影级创意,作品即主角。' }, featuredServices: [brand.id, film.id], featuredCases: [caseA.id, caseB.id] },
     { hero: { title: 'Make Them Look', subtitle: 'Cinematic creative — the work is the hero.' } },
   )
   await publishGlobal(
