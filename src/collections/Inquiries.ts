@@ -1,6 +1,38 @@
-import type { CollectionConfig } from 'payload'
+import type { CollectionAfterChangeHook, CollectionConfig } from 'payload'
 
 import { isAdmin, isEditor } from '../access'
+
+type Channel = 'email' | 'sms'
+
+// §10 原子入队:新建咨询后,为每个已配置的通道建一条 pending Notifications 行 + 入一个 notify job,
+// 全部传入同一 req → 与 inquiry 落同一 Postgres 事务(任一失败则整体回滚,不会漏 inquiry 却漏通知)。
+// 实际发送在 worker(jobs)里做;发送失败只标 Notifications 失败并重试,绝不回滚 inquiry(线索优先)。
+const enqueueNotifications: CollectionAfterChangeHook = async ({ doc, operation, req }) => {
+  if (operation !== 'create') return doc
+
+  const channels: Channel[] = []
+  if (process.env.NOTIFY_EMAIL) channels.push('email')
+  if (process.env.NOTIFY_PHONE) channels.push('sms')
+  if (channels.length === 0) {
+    req.payload.logger.warn('未配置 NOTIFY_EMAIL / NOTIFY_PHONE,跳过咨询通知')
+    return doc
+  }
+
+  for (const channel of channels) {
+    await req.payload.create({
+      collection: 'notifications',
+      data: { inquiry: doc.id, channel, status: 'pending' },
+      overrideAccess: true,
+      req,
+    })
+    await req.payload.jobs.queue({
+      task: 'notify',
+      input: { inquiryId: doc.id, channel },
+      req,
+    })
+  }
+  return doc
+}
 
 // 项目咨询提交:不双语、不草稿。createdAt/updatedAt 由 Payload 默认时间戳提供。
 export const Inquiries: CollectionConfig = {
@@ -18,12 +50,12 @@ export const Inquiries: CollectionConfig = {
     delete: isAdmin,
   },
   fields: [
-    { name: 'name', type: 'text', required: true },
-    { name: 'email', type: 'email', required: true },
-    { name: 'phone', type: 'text' },
-    { name: 'company', type: 'text' },
+    { name: 'name', type: 'text', required: true, maxLength: 200 },
+    { name: 'email', type: 'email', required: true }, // email 类型无 maxLength;长度上限在 Server Action 校验
+    { name: 'phone', type: 'text', maxLength: 40 },
+    { name: 'company', type: 'text', maxLength: 200 },
     { name: 'serviceInterest', type: 'relationship', relationTo: 'services' },
-    { name: 'message', type: 'textarea' },
+    { name: 'message', type: 'textarea', maxLength: 5000 },
     {
       name: 'consent',
       type: 'checkbox',
@@ -33,5 +65,7 @@ export const Inquiries: CollectionConfig = {
     },
     { name: 'localeFrom', type: 'text', admin: { readOnly: true } },
   ],
-  // afterChange 通知入队(邮件+短信 outbox)见 dev-plan §10 → 阶段 5 实现
+  hooks: {
+    afterChange: [enqueueNotifications],
+  },
 }

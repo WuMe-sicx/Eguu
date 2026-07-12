@@ -1,7 +1,9 @@
 import PageHeader from '@/components/PageHeader'
 import { getDict, isLocale } from '@/i18n'
-import { getContact } from '@/lib/content'
+import { getContact, getServices } from '@/lib/content'
 import type { Contact } from '@/payload-types'
+
+import ContactForm from './ContactForm'
 
 export const revalidate = 60
 
@@ -40,6 +42,11 @@ export default async function ContactPage({ params }: { params: Promise<{ locale
   const contact = await getContact(locale).catch(() => null)
   const map = mapUrl(contact?.map)
   const social = (contact?.social ?? []).filter((s) => isHttp(s.url))
+
+  const services = await getServices(locale, { limit: 100 }).catch(() => ({ docs: [] }))
+  const serviceOptions = services.docs
+    .filter((s) => typeof s.title === 'string' && s.title.length > 0)
+    .map((s) => ({ id: s.id, title: s.title as string }))
 
   return (
     <>
@@ -81,6 +88,10 @@ export default async function ContactPage({ params }: { params: Promise<{ locale
               </div>
             </div>
           )}
+        </div>
+        <div className="contact-form-wrap">
+          <h2 className="card-meta mono">{p.form.heading}</h2>
+          <ContactForm locale={locale} services={serviceOptions} t={p.form} />
         </div>
       </section>
     </>

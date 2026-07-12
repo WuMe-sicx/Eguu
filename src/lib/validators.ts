@@ -34,6 +34,10 @@ export const isAllowedAnalyticsId = (provider: unknown, id: unknown): boolean =>
 export const isValidHexColor = (v: unknown): boolean =>
   typeof v === 'string' && /^#[0-9a-fA-F]{6}$/.test(v)
 
+/** 邮箱格式(§10 表单校验,手写替代 zod:够用即可,真校验靠回信/联系) */
+export const isValidEmail = (v: unknown): v is string =>
+  typeof v === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim())
+
 // ── 上传内容嗅探(纯函数,便于单测)──
 // sharp 报告的格式 → 对应 MIME。注意 sharp 0.34 把 AVIF 报成 format:'heif' + compression:'av1'。
 const SHARP_FORMAT_TO_MIME: Record<string, string> = {

@@ -823,6 +823,103 @@ a.contact-item:hover .contact-val {
 .social a {
   color: var(--accent);
 }
+.contact-grid {
+  display: grid;
+  gap: 48px;
+  grid-template-columns: 1fr;
+}
+@media (min-width: 860px) {
+  .contact-grid {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+}
+.contact-form-wrap h2 {
+  margin: 0 0 18px;
+}
+.contact-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-width: 520px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.field > span {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+}
+.contact-form input,
+.contact-form select,
+.contact-form textarea {
+  width: 100%;
+  padding: 12px 14px;
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+}
+.contact-form input:focus,
+.contact-form select:focus,
+.contact-form textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.contact-form [aria-invalid='true'] {
+  border-color: #e5484d;
+}
+.contact-form textarea {
+  resize: vertical;
+}
+.consent {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+.consent input {
+  width: auto;
+  margin-top: 3px;
+}
+.consent a {
+  color: var(--accent);
+}
+/* honeypot:视觉与读屏均移出,不进 tab 序 */
+.hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.contact-form button {
+  align-self: flex-start;
+  padding: 12px 28px;
+  background: var(--accent);
+  color: var(--bg); /* 主题自适应:深底浅蓝配深字,浅底深蓝配浅字,均过 AA */
+  border: 0;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.contact-form button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.form-success {
+  color: var(--accent);
+  font-family: var(--ff-display);
+  font-size: 1.2rem;
+}
+.form-error {
+  color: #e5484d;
+  font-size: 0.9rem;
+}
 
 /* ───────── 隐私 / 法务 ───────── */
 .legal-doc {
