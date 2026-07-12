@@ -2,11 +2,13 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 
 import { CaseCard } from '@/components/cards'
+import { CaseJsonLd } from '@/components/JsonLd'
 import Media from '@/components/Media'
 import RichText from '@/components/RichText'
 import Video from '@/components/Video'
 import { getDict, isLocale, locales } from '@/i18n'
 import { getCaseBySlug, getCases, getRelatedCases } from '@/lib/content'
+import { buildMetadata, getCachedSettings } from '@/lib/seo'
 import type { Media as MediaDoc, Service } from '@/payload-types'
 
 export const revalidate = 60
@@ -29,7 +31,16 @@ export async function generateMetadata({
   const { locale: raw, slug } = await params
   const locale = isLocale(raw) ? raw : 'zh'
   const doc = await getCaseBySlug(slug, locale).catch(() => null)
-  return { title: doc?.title, description: doc?.client }
+  if (!doc) return {}
+  return buildMetadata({
+    locale,
+    path: `/work/${slug}`,
+    type: 'article',
+    title: doc.meta?.title || doc.title,
+    description: doc.meta?.description || doc.client,
+    image: doc.meta?.image ?? doc.cover,
+    settings: await getCachedSettings(locale),
+  })
 }
 
 export default async function CaseDetail({
@@ -49,6 +60,7 @@ export default async function CaseDetail({
 
   return (
     <article className="detail">
+      <CaseJsonLd doc={doc} locale={locale} />
       <header className="page-header reveal">
         <span className="idx mono">{doc.client}</span>
         <h1>{doc.title}</h1>

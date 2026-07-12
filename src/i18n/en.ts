@@ -80,6 +80,15 @@ const en: Dict = {
     empty: 'Coming soon',
   },
   common: { comingSoon: 'Coming soon', backHome: 'Back home' },
+  seo: {
+    home: 'Cinematic creative and film production — the work is the hero. We make brands impossible to ignore.',
+    work: 'Selected work — brand campaigns, films, and creative projects.',
+    services: 'Core services including brand strategy and film production.',
+    about: 'About us: a work-first creative studio.',
+    news: 'Studio news, awards, and perspectives.',
+    contact: 'Start your project — inquiries and contact details.',
+    privacy: 'Privacy policy and personal information handling (PIPL).',
+  },
 }
 
 export default en

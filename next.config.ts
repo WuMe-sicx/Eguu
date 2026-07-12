@@ -3,10 +3,24 @@ import type { NextConfig } from 'next'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
+import { normalizeMediaHost, SECURITY_SOURCE, securityHeaders } from './src/lib/securityHeaders'
+
 const __filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(__filename)
 
 const nextConfig: NextConfig = {
+  // §12 前台安全响应头 / 务实 CSP(逻辑在 src/lib/securityHeaders,便于单测)。
+  async headers() {
+    return [
+      {
+        source: SECURITY_SOURCE,
+        headers: securityHeaders({
+          isDev: process.env.NODE_ENV === 'development',
+          mediaHost: normalizeMediaHost(process.env.NEXT_PUBLIC_MEDIA_HOST),
+        }),
+      },
+    ]
+  },
   images: {
     localPatterns: [
       {

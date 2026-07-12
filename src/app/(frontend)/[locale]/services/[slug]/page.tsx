@@ -6,6 +6,7 @@ import PageHeader from '@/components/PageHeader'
 import RichText from '@/components/RichText'
 import { getDict, isLocale, locales } from '@/i18n'
 import { getCasesForService, getServiceBySlug, getServices } from '@/lib/content'
+import { buildMetadata, getCachedSettings } from '@/lib/seo'
 
 export const revalidate = 60
 
@@ -27,7 +28,16 @@ export async function generateMetadata({
   const { locale: raw, slug } = await params
   const locale = isLocale(raw) ? raw : 'zh'
   const doc = await getServiceBySlug(slug, locale).catch(() => null)
-  return { title: doc?.title, description: doc?.summary }
+  if (!doc) return {}
+  return buildMetadata({
+    locale,
+    path: `/services/${slug}`,
+    type: 'article',
+    title: doc.meta?.title || doc.title,
+    description: doc.meta?.description || doc.summary,
+    image: doc.meta?.image ?? doc.cover,
+    settings: await getCachedSettings(locale),
+  })
 }
 
 export default async function ServiceDetail({

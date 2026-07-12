@@ -3,8 +3,22 @@ import PageHeader from '@/components/PageHeader'
 import RichText from '@/components/RichText'
 import { getDict, isLocale } from '@/i18n'
 import { getAbout } from '@/lib/content'
+import { buildMetadata, getCachedSettings } from '@/lib/seo'
 
 export const revalidate = 60
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale: raw } = await params
+  const locale = isLocale(raw) ? raw : 'zh'
+  const dict = getDict(locale)
+  return buildMetadata({
+    locale,
+    path: '/about',
+    title: dict.pages.about.title,
+    fallbackDescription: dict.seo.about,
+    settings: await getCachedSettings(locale),
+  })
+}
 
 export default async function AboutPage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale: raw } = await params

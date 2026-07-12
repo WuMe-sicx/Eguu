@@ -1,11 +1,25 @@
 import PageHeader from '@/components/PageHeader'
 import { getDict, isLocale } from '@/i18n'
 import { getContact, getServices } from '@/lib/content'
+import { buildMetadata, getCachedSettings } from '@/lib/seo'
 import type { Contact } from '@/payload-types'
 
 import ContactForm from './ContactForm'
 
 export const revalidate = 60
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale: raw } = await params
+  const locale = isLocale(raw) ? raw : 'zh'
+  const dict = getDict(locale)
+  return buildMetadata({
+    locale,
+    path: '/contact',
+    title: dict.pages.contact.title,
+    fallbackDescription: dict.seo.contact,
+    settings: await getCachedSettings(locale),
+  })
+}
 
 // 结构化坐标 → 地图深链(数字拼接,不嵌任意 HTML)
 function mapUrl(map: Contact['map']): string | null {

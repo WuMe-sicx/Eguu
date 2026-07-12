@@ -1,10 +1,12 @@
 import { notFound } from 'next/navigation'
 
 import { NewsCard } from '@/components/cards'
+import { NewsJsonLd } from '@/components/JsonLd'
 import Media from '@/components/Media'
 import RichText from '@/components/RichText'
 import { getDict, isLocale, locales } from '@/i18n'
 import { getNews, getNewsBySlug, getRelatedNews } from '@/lib/content'
+import { buildMetadata, getCachedSettings } from '@/lib/seo'
 
 export const revalidate = 60
 
@@ -26,7 +28,16 @@ export async function generateMetadata({
   const { locale: raw, slug } = await params
   const locale = isLocale(raw) ? raw : 'zh'
   const doc = await getNewsBySlug(slug, locale).catch(() => null)
-  return { title: doc?.title, description: doc?.excerpt }
+  if (!doc) return {}
+  return buildMetadata({
+    locale,
+    path: `/news/${slug}`,
+    type: 'article',
+    title: doc.meta?.title || doc.title,
+    description: doc.meta?.description || doc.excerpt,
+    image: doc.meta?.image ?? doc.cover,
+    settings: await getCachedSettings(locale),
+  })
 }
 
 export default async function NewsDetail({
@@ -51,6 +62,7 @@ export default async function NewsDetail({
 
   return (
     <article className="detail">
+      <NewsJsonLd doc={doc} locale={locale} />
       <header className="page-header reveal">
         {date && <span className="idx mono">{date}</span>}
         <h1>{doc.title}</h1>

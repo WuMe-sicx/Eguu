@@ -78,6 +78,16 @@ const zh = {
     empty: '内容即将上线',
   },
   common: { comingSoon: '内容建设中', backHome: '返回首页' },
+  // 各页 SEO 默认描述(无 meta/defaultSeo 时的回退)
+  seo: {
+    home: '电影级创意与影视制作,作品即主角。为品牌制造注意力。',
+    work: '精选案例作品——品牌战役、影视短片与创意项目。',
+    services: '品牌策略、影视制作等核心服务。',
+    about: '关于我们:一家以作品为中心的创意公司。',
+    news: '工作室动态、奖项与观点。',
+    contact: '开启你的项目——项目咨询与联系方式。',
+    privacy: '隐私政策与个人信息处理说明(PIPL)。',
+  },
 }
 
 export default zh

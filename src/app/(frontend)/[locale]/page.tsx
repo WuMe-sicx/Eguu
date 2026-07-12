@@ -4,9 +4,21 @@ import { CaseCard, NewsCard, ServiceCard } from '@/components/cards'
 import RichText from '@/components/RichText'
 import { getDict, isLocale } from '@/i18n'
 import { getHome, getNews, getServices } from '@/lib/content'
+import { buildMetadata, getCachedSettings } from '@/lib/seo'
 import type { Case, Service } from '@/payload-types'
 
 export const revalidate = 60
+
+export async function generateMetadata({ params }: { params: Promise<{ locale: string }> }) {
+  const { locale: raw } = await params
+  const locale = isLocale(raw) ? raw : 'zh'
+  return buildMetadata({
+    locale,
+    path: '',
+    fallbackDescription: getDict(locale).seo.home,
+    settings: await getCachedSettings(locale),
+  })
+}
 
 export default async function HomePage({ params }: { params: Promise<{ locale: string }> }) {
   const { locale: raw } = await params
