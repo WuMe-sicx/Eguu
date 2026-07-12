@@ -1,6 +1,7 @@
 import { postgresAdapter } from '@payloadcms/db-postgres'
 import { lexicalEditor } from '@payloadcms/richtext-lexical'
 import { seoPlugin } from '@payloadcms/plugin-seo'
+import { zh } from '@payloadcms/translations/languages/zh'
 import path from 'path'
 import { buildConfig } from 'payload'
 import { fileURLToPath } from 'url'
@@ -39,6 +40,12 @@ export default buildConfig({
     ],
     defaultLocale: 'zh',
     fallback: true,
+  },
+  // 后台 UI 语言(与内容双语 localization 无关):Payload 默认只含 en。这里设为中文。
+  // 需英文时改成 supportedLanguages: { zh, en },管理员可在账户设置切换。
+  i18n: {
+    supportedLanguages: { zh },
+    fallbackLanguage: 'zh',
   },
   editor: lexicalEditor(),
   secret: process.env.PAYLOAD_SECRET || '',
