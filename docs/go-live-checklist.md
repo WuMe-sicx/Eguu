@@ -20,7 +20,7 @@
 
 ## B. 部署顺序(单机 docker-compose)
 
-1. 准备 `.env`(照 `.env.example`):`DATABASE_URL`(host=`postgres`)、`PAYLOAD_SECRET`、`PREVIEW_SECRET`、`POSTGRES_*`(**密码必填,compose 无默认**)、`ADMIN_EMAIL`/`ADMIN_PASSWORD`、`NEXT_PUBLIC_SERVER_URL`(备案域名)、通知/存储凭据。
+1. 准备 `.env`(照 `.env.example`):`DATABASE_URL`(host=`postgres`)、`PAYLOAD_SECRET`、`PREVIEW_SECRET`、`POSTGRES_*`(**密码必填,compose 无默认**)、`ADMIN_EMAIL`/`ADMIN_PASSWORD`、`NEXT_PUBLIC_SERVER_URL`(主域名 `https://egouu.com`,即备案域名)、通知/存储凭据。
 2. `docker compose build`
 3. `docker compose up -d postgres` → 等 healthy
 4. `docker compose up migrate`(一次性):跑 `payload migrate` + `bootstrap:admin`,**成功退出**才继续 🔒
@@ -31,6 +31,7 @@
 
 ## C. 外部依赖 / 凭据(部署前接好)
 
+- [ ] **域名 / DNS / 证书** 🔒:主域名 = apex `egouu.com`(= `NEXT_PUBLIC_SERVER_URL`);`egouu.com` 与 `www.egouu.com` 都解析到入口,**TLS 证书须覆盖两者**(www 先握手 TLS 才能被应用 308 归一)。www→apex 归一由应用 `redirects()` 处理;若前置 CDN/反代已做归一,须保证到达应用的 `Host` 头保留原主机(否则规则不触发)。备案覆盖两个主机名。
 - [ ] **对象存储** 🔒:`@payloadcms/storage-s3` 私有 bucket + `signedDownloads`(草稿/未发布素材走签名 URL);填 `S3_*`。当前为本地磁盘存储,仅临时。
 - [ ] **邮件 SMTP** 🔒:`@payloadcms/email-nodemailer` + `SMTP_*`/`MAIL_FROM`;接入 `src/lib/notify.ts` 的 `sendEmail`(当前配了凭据即抛错占位)。
 - [ ] **短信** 🔒:`SMS_*` + 已报备签名/模板;接入 `notify.ts` 的 `sendSms`。

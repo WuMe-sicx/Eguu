@@ -3,6 +3,7 @@ import type { NextConfig } from 'next'
 import path from 'path'
 import { fileURLToPath } from 'url'
 
+import { canonicalHostRedirects } from './src/lib/canonicalRedirect'
 import { normalizeMediaHost, SECURITY_SOURCE, securityHeaders } from './src/lib/securityHeaders'
 
 const __filename = fileURLToPath(import.meta.url)
@@ -20,6 +21,10 @@ const nextConfig: NextConfig = {
         }),
       },
     ]
+  },
+  // §12 主域名归一:www ↔ apex 308 到 NEXT_PUBLIC_SERVER_URL 指定的主域名(单一来源,构建期读 env)。
+  async redirects() {
+    return canonicalHostRedirects(process.env.NEXT_PUBLIC_SERVER_URL)
   },
   images: {
     localPatterns: [
