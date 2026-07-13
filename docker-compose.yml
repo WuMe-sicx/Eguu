@@ -1,43 +1,73 @@
-version: '3'
+# 生产向单机编排:postgres + 一次性 migrate(release job)+ app + 通知 worker。
+# 三个应用服务共用同一镜像(egouu:latest),靠 command 区分。DATABASE_URL(在 .env)
+# 主机名须为 postgres,凭据与下方 POSTGRES_* 一致,例:
+#   postgres://egouu:egouu@postgres:5432/egouu
+# 镜像可离线构建(next build 不依赖 DB:sitemap 请求时生成,其余取数 .catch 兜底),
+# 但 NEXT_PUBLIC_*(域名/环境)在构建期内联进 SSG/robots,故须按目标环境用 build.args 传入
+# (从部署环境/`.env` 插值);同镜像不跨 staging/prod 复用。
+
+# 共享构建:三服务同一镜像,build.args 传公开域名/环境(构建期内联)。
+x-build: &build
+  context: .
+  args:
+    NEXT_PUBLIC_SERVER_URL: ${NEXT_PUBLIC_SERVER_URL:?生产站点域名必填(NEXT_PUBLIC_* 构建期内联,勿留 localhost)}
+    NEXT_PUBLIC_SITE_ENV: ${NEXT_PUBLIC_SITE_ENV:-}
+    NEXT_PUBLIC_MEDIA_HOST: ${NEXT_PUBLIC_MEDIA_HOST:-} # CDN/OSS 域(进 CSP,构建期内联)
+
+# app / worker 共享的构建与环境(migrate 单独定义,因它是被依赖方)。
+# NODE_ENV 硬编码 production(优先级高于 env_file),防 .env 误填导致 push:true 直改生产 schema。
+x-app: &app
+  build: *build
+  image: egouu:latest
+  env_file: [.env]
+  environment:
+    NODE_ENV: production
+  restart: always
+  depends_on:
+    migrate:
+      condition: service_completed_successfully
 
 services:
-  payload:
-    image: node:20-alpine
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-egouu}
+      # 必填:缺失或空则 compose 直接报错,杜绝回退到公开默认密码。
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 必填(勿用默认/空值)}
+      POSTGRES_DB: ${POSTGRES_DB:-egouu}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-egouu} -d ${POSTGRES_DB:-egouu}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # 一次性 release job(§17 单实例迁移):先跑 migrate 建/迁 schema,
+  # 再 bootstrap 首个管理员(在暴露 /admin 之前,消除 create-first-user 抢注空窗),然后退出。
+  migrate:
+    build: *build
+    image: egouu:latest
+    command: sh -c "pnpm payload migrate && pnpm bootstrap:admin"
+    env_file: [.env]
+    environment:
+      NODE_ENV: production
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  app:
+    <<: *app
     ports:
       - '3000:3000'
-    volumes:
-      - .:/home/node/app
-      - node_modules:/home/node/app/node_modules
-    working_dir: /home/node/app/
-    command: sh -c "corepack enable && corepack prepare pnpm@latest --activate && pnpm install && pnpm dev"
-    depends_on:
-      - mongo
-      # - postgres
-    env_file:
-      - .env
 
-  # Ensure your DATABASE_URL uses 'mongo' as the hostname ie. mongodb://mongo/my-db-name
-  mongo:
-    image: mongo:latest
-    ports:
-      - '27017:27017'
-    command:
-      - --storageEngine=wiredTiger
-    volumes:
-      - data:/data/db
-    logging:
-      driver: none
-
-  # Uncomment the following to use postgres
-  # postgres:
-  #   restart: always
-  #   image: postgres:latest
-  #   volumes:
-  #     - pgdata:/var/lib/postgresql/data
-  #   ports:
-  #     - "5432:5432"
+  # 通知 worker:payload jobs:run 内建 Croner 循环 drain outbox 队列(§10/§17)。
+  # 无 runner 队列永不执行 → 通知不发。
+  worker:
+    <<: *app
+    command: pnpm worker
 
 volumes:
-  data:
-  # pgdata:
-  node_modules:
+  pgdata:

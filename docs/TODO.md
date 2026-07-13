@@ -63,14 +63,19 @@
 - **✅ 验证**:Lighthouse 性能/SEO/可访问性 ≥ 90;分享卡片正常
 
 ## 阶段 7 · 部署上线
-- [ ] Dockerfile 多阶段 + docker-compose(app + postgres + worker)
-- [ ] 迁移:`migrate:create` 提交 → 部署 `migrate`(单实例 release job,staging 预演,expand/migrate/contract)🔒
-- [ ] 备份:`pg_dump` 定时 + OSS 冗余 + 恢复演练
-- [ ] CI:install → eslint → tsc → test → `next build` → 空库全迁移 → 高危项集成测试 🔒
-- [ ] PIPL:隐私页上线门禁、留存删除任务、数据主体权利渠道、第三方/跨境 🔒
-- [ ] 公安联网备案(30 日内,页脚展示号)🔒
-- [ ] 首个管理员抢注防护:全新库首启时 `/admin` 的「create-first-user」对匿名开放,谁先访问谁能抢注成 admin。部署时先用脚本/env 自动建好首个管理员,再对外暴露 `/admin`(消除空窗)🔒
-- **✅ 验证**:一键起、迁移可执行、备份可恢复;全新库部署无匿名抢注空窗
+> 可构建产物已落地并本地验证;外部/凭据/法务项与遗留加固见 [`go-live-checklist.md`](go-live-checklist.md)。
+- [x] Dockerfile 多阶段 + docker-compose(postgres + 一次性 migrate + app + worker)+ `.dockerignore`
+- [x] 迁移:`push` 按环境分档(生产 `push:false`)+ 初始迁移提交;空库 `migrate` 干净应用 🔒
+      · 部署 `migrate`(单实例 release job,staging 预演,expand/migrate/contract)→ 清单 B
+- [x] 生产 worker:`pnpm worker`(`payload jobs:run --cron` 内建循环 drain outbox)
+- [x] CI:install → eslint → tsc → test:int → `next build` → 空库全迁移 → schema 漂移检测 🔒
+- [x] 首个管理员抢注防护:`ensureAdmin` 脚本 + compose release job 于暴露 `/admin` 前建好首管理员 🔒
+- [ ] 备份:`pg_dump` 定时 + OSS 冗余 + 恢复演练 → 清单 E
+- [ ] PIPL:隐私页上线门禁、留存删除任务、数据主体权利渠道、第三方/跨境 🔒 → 清单 D
+- [ ] 公安联网备案(30 日内,页脚展示号)🔒 → 清单 D
+- [ ] 外部凭据接线:OSS 私有桶+签名 / SMTP / 短信 / CDN 🔒 → 清单 C
+- [ ] 遗留加固:严格 nonce CSP / stale-job 看门狗 / TRUSTED_IP_HEADER 强制 → 清单 F
+- **✅ 验证**:一键起、迁移可执行(已本地验证)、备份可恢复;全新库部署无匿名抢注空窗(已验证幂等 bootstrap)
 
 ---
 

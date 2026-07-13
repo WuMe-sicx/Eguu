@@ -6,6 +6,10 @@ import { IS_STAGING, SERVER_URL } from '@/lib/seo'
 
 // §12 站点地图:静态页 + 已发布内容,每条带中英 hreflang(slug 不双语,两语共用)。
 // staging 全站 noindex → 返回空 sitemap。
+// 请求时生成(非构建期):① 反映当前已发布内容,不被构建快照定死;
+// ② 让 next build 不依赖 DB(其余页面的取数均已 .catch 兜底),镜像可离线构建。
+// 查询失败仍在请求时 fail-loud(见下),不发布部分 sitemap。
+export const dynamic = 'force-dynamic'
 
 const STATIC_PATHS = ['', '/work', '/services', '/about', '/news', '/contact', '/privacy']
 const COLLECTIONS = [

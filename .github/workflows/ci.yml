@@ -1,0 +1,144 @@
+# CI 门禁(§17):lint + 类型 + 测试 + 构建 + 空库跑全部迁移 + 模型/迁移一致性。
+# 高危项集成测试(§18:草稿隔离、匿名写拒绝、限流、通知幂等、降权失权等)已在 tests/int/*,由 test:int 覆盖。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: egouu_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+
+    env:
+      PAYLOAD_SECRET: ci-not-a-real-secret
+      # 集成测试库(空库 → 首启 push 建表,非交互)
+      DATABASE_URL: postgres://postgres:postgres@localhost:5432/egouu_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: corepack enable
+      - run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+      - name: 类型检查
+        run: pnpm exec tsc --noEmit
+      - name: 集成测试(高危项)
+        run: pnpm test:int
+      - name: 构建
+        run: pnpm build
+
+      # §17:全新空库应用全部已提交迁移(生产语义 push:false),再核对状态。
+      - name: 迁移在空库干净应用
+        env:
+          NODE_ENV: production
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/egouu_migrate
+        run: |
+          psql "postgres://postgres:postgres@localhost:5432/postgres" -c 'CREATE DATABASE egouu_migrate'
+          pnpm payload migrate
+          pnpm payload migrate:status
+
+      # 首管理员 bootstrap(§17 抢注防护):迁移库上跑两次,断言恰好建 1 个 admin(创建 + 幂等)。
+      - name: bootstrap 首管理员幂等
+        env:
+          NODE_ENV: production
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/egouu_migrate
+          ADMIN_EMAIL: ci-admin@example.com
+          ADMIN_PASSWORD: ci-not-a-real-password
+        run: |
+          pnpm bootstrap:admin
+          pnpm bootstrap:admin   # 重跑应 no-op
+          DB="postgres://postgres:postgres@localhost:5432/egouu_migrate"
+          COUNT=$(psql "$DB" -tAc 'select count(*) from admins')
+          test "$COUNT" = '1' || { echo "::error::bootstrap 非幂等或未建管理员(admins=$COUNT)"; exit 1; }
+          # 断言该账号确有 admin 角色(不只是建了行)—— authz 结果才是抢注防护的关键。
+          ADMINROLE=$(psql "$DB" -tAc "select count(*) from admins_roles r join admins a on a.id = r.parent_id where r.value = 'admin'")
+          test "$ADMINROLE" = '1' || { echo "::error::bootstrap 账号无 admin 角色(admin 角色数=$ADMINROLE)"; exit 1; }
+          echo "bootstrap 幂等 + admin 角色 ✅(admins=$COUNT, admin 角色=$ADMINROLE)"
+
+      # 模型与已提交迁移一致:migrate:create 不连库,按 config 对上一份快照生成迁移。
+      # postgres 适配器不支持 skipEmpty(总会写文件),故以「生成的 UP 体是否含真实 DDL」判漂移:
+      # 空体(// Migration code)= 无漂移;含 db.execute = 模型改了却没提交迁移。
+      - name: 无未提交 schema 漂移
+        run: |
+          pnpm payload migrate:create ci_drift_check --force-accept-warning
+          NEW=$(ls -t src/migrations/*ci_drift_check*.ts | head -1)
+          if grep -q 'db.execute' "$NEW"; then
+            echo '::error::检测到未生成迁移的模型变更,请本地 pnpm migrate:create <name> 并提交迁移文件'
+            exit 1
+          fi
+          echo '无 schema 漂移 ✅'
+
+  # 容器产物:离线构建镜像(next build 已不依赖 DB,sitemap 请求时生成、其余取数 .catch 兜底)
+  # + 校验 compose 编排(语法 + 必填 POSTGRES_PASSWORD 插值 + depends_on/healthcheck)。
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 离线构建生产镜像(传公开域名/媒体域 build-arg)
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_SERVER_URL=https://ci.example.com \
+            --build-arg NEXT_PUBLIC_MEDIA_HOST=https://cdn.ci.example.com \
+            -t egouu:ci .
+
+      - name: 断言公开配置内联(域名内联 / 无 localhost / CSP 含媒体域)
+        run: |
+          docker run --rm egouu:ci sh -euc '
+            grep -rq "https://ci.example.com" .next/server/app || { echo "站点域名未内联进 SSG"; exit 1; }
+            if grep -rq "localhost:3000" .next/server/app; then echo "SSG 产物泄漏 localhost"; exit 1; fi
+            grep -q "cdn.ci.example.com" .next/routes-manifest.json || { echo "CSP 未含媒体域(MEDIA_HOST build-arg 未生效)"; exit 1; }
+            # 生产首页须可索引(与下方 staging 的 noindex 互为反向断言)
+            if grep -q "noindex" .next/server/app/zh.html; then echo "生产首页误带 noindex"; exit 1; fi
+            echo "生产产物公开配置正确 ✅"
+          '
+
+      - name: localhost 站点域名构建应被拒(URL 校验)
+        run: |
+          if docker build --build-arg NEXT_PUBLIC_SERVER_URL=http://localhost:3000 -t egouu:bad . 2>/dev/null; then
+            echo '::error::localhost 域名竟构建成功(URL 校验失效)'; exit 1
+          fi
+          echo 'localhost 被拒 ✅'
+
+      - name: staging 构建产出 Disallow:/ 与 noindex(抓取保护)
+        run: |
+          docker build \
+            --build-arg NEXT_PUBLIC_SERVER_URL=https://staging.ci.example.com \
+            --build-arg NEXT_PUBLIC_SITE_ENV=staging \
+            -t egouu:staging .
+          docker run --rm egouu:staging sh -euc '
+            grep -Eq "^Disallow: /$" .next/server/app/robots.txt.body || { echo "staging robots 未全站 Disallow"; exit 1; }
+            # 针对具体内容页断言(内容页为 noindex,nofollow;不扫全目录,避开框架 _not-found 的默认 noindex 误判)
+            for p in zh.html en.html; do
+              grep -q "noindex, nofollow" ".next/server/app/$p" || { echo "staging $p 未 noindex,nofollow"; exit 1; }
+            done
+            echo "staging 抓取保护正确 ✅"
+          '
+
+      - name: 校验 docker-compose 编排
+        env:
+          POSTGRES_PASSWORD: ci-compose-check
+          NEXT_PUBLIC_SERVER_URL: https://ci.example.com
+        run: |
+          touch .env   # env_file 引用,需存在
+          docker compose config -q
+          echo 'compose 配置有效 ✅'

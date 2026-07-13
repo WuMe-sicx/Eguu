@@ -20,6 +20,7 @@ import { Home } from './globals/Home'
 import { About } from './globals/About'
 import { Contact } from './globals/Contact'
 import { notifyTask } from './jobs/notify'
+import { shouldPush } from './lib/dbPush'
 
 const filename = fileURLToPath(import.meta.url)
 const dirname = path.dirname(filename)
@@ -56,6 +57,10 @@ export default buildConfig({
     pool: {
       connectionString: process.env.DATABASE_URL || '',
     },
+    // §17 迁移:dev/test 用 push(Drizzle 直接同步本地/测试库);生产走 `payload migrate`
+    // (独立单实例 release job)。shouldPush 为 fail-safe 白名单,未知/缺失 NODE_ENV 不 push。
+    push: shouldPush(process.env.NODE_ENV),
+    migrationDir: path.resolve(dirname, 'migrations'),
   }),
   sharp,
   // 通知 worker(§10):dev 用 autoRun 轮询已入队 job(Docker 长驻,非 serverless);
