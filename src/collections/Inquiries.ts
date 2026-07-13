@@ -1,40 +1,10 @@
-import type { CollectionAfterChangeHook, CollectionConfig } from 'payload'
+import type { CollectionConfig } from 'payload'
 
 import { isAdmin, isEditor } from '../access'
 
-type Channel = 'email' | 'sms'
-
-// §10 原子入队:新建咨询后,为每个已配置的通道建一条 pending Notifications 行 + 入一个 notify job,
-// 全部传入同一 req → 与 inquiry 落同一 Postgres 事务(任一失败则整体回滚,不会漏 inquiry 却漏通知)。
-// 实际发送在 worker(jobs)里做;发送失败只标 Notifications 失败并重试,绝不回滚 inquiry(线索优先)。
-const enqueueNotifications: CollectionAfterChangeHook = async ({ doc, operation, req }) => {
-  if (operation !== 'create') return doc
-
-  const channels: Channel[] = []
-  if (process.env.NOTIFY_EMAIL) channels.push('email')
-  if (process.env.NOTIFY_PHONE) channels.push('sms')
-  if (channels.length === 0) {
-    req.payload.logger.warn('未配置 NOTIFY_EMAIL / NOTIFY_PHONE,跳过咨询通知')
-    return doc
-  }
-
-  for (const channel of channels) {
-    await req.payload.create({
-      collection: 'notifications',
-      data: { inquiry: doc.id, channel, status: 'pending' },
-      overrideAccess: true,
-      req,
-    })
-    await req.payload.jobs.queue({
-      task: 'notify',
-      input: { inquiryId: doc.id, channel },
-      req,
-    })
-  }
-  return doc
-}
-
 // 项目咨询提交:不双语、不草稿。createdAt/updatedAt 由 Payload 默认时间戳提供。
+// 通知入队**不再走 afterChange**(那会与 inquiry 落同一事务,入队失败即回滚丢单)。
+// 改为 Server Action 在 inquiry 提交后调用 enqueueInquiryNotifications(独立事务,线索优先)。
 export const Inquiries: CollectionConfig = {
   slug: 'inquiries',
   admin: {
@@ -65,7 +35,4 @@ export const Inquiries: CollectionConfig = {
     },
     { name: 'localeFrom', type: 'text', admin: { readOnly: true } },
   ],
-  hooks: {
-    afterChange: [enqueueNotifications],
-  },
 }

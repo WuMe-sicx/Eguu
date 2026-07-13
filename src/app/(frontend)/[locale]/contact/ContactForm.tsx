@@ -43,11 +43,11 @@ export default function ContactForm({
     <form ref={formRef} action={action} className="contact-form" noValidate>
       <input type="hidden" name="ts" value={ts} />
       <input type="hidden" name="locale" value={locale} />
-      {/* honeypot:视觉隐藏,真人不填、机器人易填 */}
+      {/* honeypot:视觉隐藏,真人不填、机器人易填。字段名用中性 hp(避开 website/url 等浏览器自动填充高频目标,降低真人误填) */}
       <div aria-hidden className="hp">
         <label>
-          Website
-          <input name="website" tabIndex={-1} autoComplete="off" />
+          Leave empty
+          <input name="hp" tabIndex={-1} autoComplete="off" />
         </label>
       </div>
 

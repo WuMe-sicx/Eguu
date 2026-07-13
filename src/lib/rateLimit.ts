@@ -8,7 +8,14 @@ import { getPayloadClient } from './payload'
 // ponytail: 固定窗口 + 每桶一行 counter;需要滑动窗口/更高吞吐再上 Redis。
 
 const WINDOW_MS = 10 * 60 * 1000 // 10 分钟
-const MAX_HITS = 5 // 每窗口每 IP 最多 5 次提交
+const DEFAULT_MAX_HITS = 20 // 每窗口每 IP 提交上限。默认放宽到 20 以容忍 NAT/CGN(中国移动/企业出口/
+// 校园网多真实客户共享一个公网 IP)——通知只发往站主本人,泛滥可控;可用 INQUIRY_RATE_MAX 覆盖。
+
+// 每次读 env(便于测试注入固定阈值);非正整数则回退默认。
+function maxHits(): number {
+  const v = Number(process.env.INQUIRY_RATE_MAX)
+  return Number.isInteger(v) && v > 0 ? v : DEFAULT_MAX_HITS
+}
 
 function bucketKey(ip: string, now: number): string {
   const secret = process.env.PAYLOAD_SECRET || ''
@@ -48,10 +55,11 @@ export async function checkRateLimit(ip: string | null, now: number = Date.now()
     [key],
   )
   const count = Number(rows[0]?.count ?? 1)
+  const limit = maxHits()
 
   // 机会式清理过期桶,失败不影响判定。用 DB 时钟(now())而非注入的 now:
   // now 参数只决定分桶,updated_at 是 DB 真实写入时间,两者解耦才不会误删刚建的桶。
   void db.query(`DELETE FROM rate_limit_hits WHERE updated_at < now() - interval '20 minutes'`).catch(() => {})
 
-  return count <= MAX_HITS
+  return count <= limit
 }

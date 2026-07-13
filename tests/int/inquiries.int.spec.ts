@@ -1,17 +1,47 @@
 // @vitest-environment node
 // 服务端集成测试跑在 node 环境(与 security.int.spec 同因:jsdom 下部分服务端库行为异常)。
 // 覆盖阶段 5(dev-plan §10 高危项):原子入队、通知幂等/失败、consent 门禁、honeypot/时间戳、跨进程限流、可信 IP。
+import { headers } from 'next/headers'
 import { getPayload, type Payload } from 'payload'
-import { describe, it, beforeAll, expect, vi } from 'vitest'
+import { describe, it, beforeAll, beforeEach, expect, vi } from 'vitest'
 
 import { submitInquiry } from '@/app/(frontend)/[locale]/contact/actions'
 import { clientIpFromHeaders } from '@/lib/clientIp'
+import { enqueueInquiryNotifications } from '@/lib/enqueueNotifications'
 import { sendEmail } from '@/lib/notify'
 import { checkRateLimit } from '@/lib/rateLimit'
 import config from '@/payload.config'
 import type { Inquiry } from '@/payload-types'
 
+// 让 submitInquiry 能在 node 测试环境跑通(headers() 本需 Next 请求上下文)。
+// 默认返回空 Headers(无 TRUSTED_IP_HEADER → ip=null → dev 桶);个别用例改其行为断言调用与否。
+vi.mock('next/headers', () => ({ headers: vi.fn(async () => new Headers()) }))
+
+// 包装真实 enqueue 为 spy:默认走真实实现(createInquiry/常规用例不受影响);
+// 个别守卫用例用 mockRejectedValueOnce 让「enqueue 自身抛出」以验证 action 内层兜底。
+vi.mock('@/lib/enqueueNotifications', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/enqueueNotifications')>()
+  return { enqueueInquiryNotifications: vi.fn(actual.enqueueInquiryNotifications) }
+})
+
 let payload: Payload
+let ipSeq = 0 // 每次合法 action 提交用唯一可信 IP → 独立限流桶,避免跨用例/重跑累计
+
+const inquiriesCount = async () =>
+  (await payload.count({ collection: 'inquiries', overrideAccess: true })).totalDocs
+
+// 经真实 submitInquiry 提交一份合法表单,并用唯一可信 IP 隔离限流桶。
+const validForm = () =>
+  fd({ ts: String(Date.now() - 3000), name: '线索', email: 'lead@p5.test', consent: 'true' })
+const submitValid = async () => {
+  process.env.TRUSTED_IP_HEADER = 'x-real-ip'
+  vi.mocked(headers).mockResolvedValue(new Headers({ 'x-real-ip': `p5-act-${++ipSeq}` }))
+  try {
+    return await submitInquiry({ ok: false }, validForm())
+  } finally {
+    delete process.env.TRUSTED_IP_HEADER
+  }
+}
 
 const notifsFor = async (inquiryId: number) =>
   (
@@ -26,12 +56,16 @@ const notifsFor = async (inquiryId: number) =>
 const jobCount = async () =>
   (await payload.count({ collection: 'payload-jobs', overrideAccess: true })).totalDocs
 
-const createInquiry = () =>
-  payload.create({
+// 镜像 Server Action:create(提交)后再入队通知(不再走 afterChange)
+const createInquiry = async () => {
+  const inq = await payload.create({
     collection: 'inquiries',
     overrideAccess: true,
     data: { name: '测试', email: 'lead@p5.test', consent: true },
   })
+  await enqueueInquiryNotifications(payload, inq.id)
+  return inq
+}
 
 const fd = (entries: Record<string, string>) => {
   const f = new FormData()
@@ -47,10 +81,17 @@ describe('阶段5 表单与通知', () => {
     delete process.env.SMTP_HOST
     delete process.env.SMS_ACCESS_KEY
     delete process.env.TRUSTED_IP_HEADER
+    process.env.INQUIRY_RATE_MAX = '5' // 固定阈值,使限流用例确定(默认 20 仅生产放宽)
     payload = await getPayload({ config })
   })
 
-  it('afterChange 原子入队:create → 2 条 pending Notifications + 2 个 job;run 后全部 sent', async () => {
+  // 每例复位 headers mock:默认返回空 Headers,并清调用记录(供「未触达限流」断言)
+  beforeEach(() => {
+    vi.mocked(headers).mockReset()
+    vi.mocked(headers).mockImplementation(async () => new Headers())
+  })
+
+  it('提交后入队:create + enqueue → 2 条 pending Notifications + 2 个 job;run 后全部 sent', async () => {
     const jobsBefore = await jobCount()
     const inq = await createInquiry()
 
@@ -93,18 +134,77 @@ describe('阶段5 表单与通知', () => {
     expect(email.attempts).toBe(1) // 只发一次:第二个同 key job 被并发键排除 / 幂等跳过
   })
 
-  it('入队失败 → inquiry 整体回滚(afterChange 与 create 同事务原子)', async () => {
-    const before = (await payload.count({ collection: 'inquiries', overrideAccess: true })).totalDocs
-    const spy = vi.spyOn(payload.jobs, 'queue').mockImplementation(() => {
-      throw new Error('注入的入队失败')
-    })
+  // 经真实 submitInquiry 路径验证「线索优先」:create 成功后,入队任一环节失败都不丢单、仍返回 ok。
+  it('submitInquiry:jobs.queue 失败(helper 内吞)→ 仍 ok、线索落库、无 job', async () => {
+    const before = await inquiriesCount()
+    const jobsBefore = await jobCount()
+    const spy = vi.spyOn(payload.jobs, 'queue').mockRejectedValue(new Error('注入的入队失败'))
     try {
-      await expect(createInquiry()).rejects.toThrow()
+      expect(await submitValid()).toEqual({ ok: true }) // 通知入队失败绝不翻成 server 错误
+      expect(spy).toHaveBeenCalled() // 确证注入生效(入队被调用并抛错)
     } finally {
       spy.mockRestore()
     }
-    const after = (await payload.count({ collection: 'inquiries', overrideAccess: true })).totalDocs
-    expect(after).toBe(before) // inquiry 未落库(事务回滚)
+    expect(await inquiriesCount()).toBe(before + 1) // 线索仍落库
+    expect(await jobCount()).toBe(jobsBefore) // 入队失败 → 无 job 落库(印证失败已注入)
+  })
+
+  it('submitInquiry:notifications 写入失败(helper 内吞)→ 仍 ok、线索落库', async () => {
+    const before = await inquiriesCount()
+    const orig = payload.create.bind(payload)
+    // 只让 notifications 写入失败;inquiries create 走原实现(线索必须落库)
+    const spy = vi
+      .spyOn(payload, 'create')
+      .mockImplementation((args: Parameters<typeof payload.create>[0]) =>
+        args.collection === 'notifications'
+          ? Promise.reject(new Error('注入的 notifications 写入失败'))
+          : orig(args),
+      )
+    try {
+      expect(await submitValid()).toEqual({ ok: true })
+      // 确证注入生效:helper 确实尝试写过 notifications(随即被拒)
+      expect(spy.mock.calls.some((c) => c[0]?.collection === 'notifications')).toBe(true)
+    } finally {
+      spy.mockRestore()
+    }
+    expect(await inquiriesCount()).toBe(before + 1) // 线索仍落库
+  })
+
+  it('submitInquiry:enqueue 自身意外抛出 → action 内层兜底仍 ok、线索落库', async () => {
+    // 直接令导入的 enqueue reject(绕过 helper 自身吞错)→ 专门守卫 action 的内层 try/catch:
+    // 若有人误删该兜底,异常会落到外层 catch 翻成 server 错误,本例即失败。
+    const before = await inquiriesCount()
+    vi.mocked(enqueueInquiryNotifications).mockRejectedValueOnce(new Error('enqueue 意外抛出'))
+    expect(await submitValid()).toEqual({ ok: true })
+    expect(await inquiriesCount()).toBe(before + 1) // 线索仍落库
+  })
+
+  it('部分失败可观测:notifications 行已建但 job 入队失败 → helper 不抛、每通道告警、行留 pending 且无 job', async () => {
+    const inq = await payload.create({
+      collection: 'inquiries',
+      overrideAccess: true,
+      data: { name: '线索', email: 'lead@p5.test', consent: true },
+    })
+    const jobsBefore = await jobCount()
+    const queueSpy = vi.spyOn(payload.jobs, 'queue').mockRejectedValue(new Error('注入的入队失败'))
+    const logSpy = vi.spyOn(payload.logger, 'error')
+    // 用真实 helper(绕过本文件对该模块的 mock 包装),确保真实入队逻辑与 queue spy 对接
+    const { enqueueInquiryNotifications: actualEnqueue } =
+      await vi.importActual<typeof import('@/lib/enqueueNotifications')>('@/lib/enqueueNotifications')
+    try {
+      await expect(actualEnqueue(payload, inq.id)).resolves.toBeUndefined() // 不抛
+      // 计数断言须在 mockRestore 前(restore 会清空调用记录)
+      expect(queueSpy).toHaveBeenCalledTimes(2) // 两通道都尝试入队
+      expect(logSpy.mock.calls.length).toBeGreaterThanOrEqual(2) // 每通道失败各告警(可观测)
+    } finally {
+      queueSpy.mockRestore()
+      logSpy.mockRestore()
+    }
+    expect(await jobCount()).toBe(jobsBefore) // 无 job 落库
+    // 行已建(pending),但无对应 job;本阶段接受「线索在库、通知可能缺失」并已告警,补扫留后续
+    const rows = await notifsFor(inq.id)
+    expect(rows.length).toBe(2)
+    expect(rows.every((n) => n.status === 'pending')).toBe(true)
   })
 
   it('生产环境缺凭据:sendEmail 抛错且绝不打印 PII / 伪标 sent', async () => {
@@ -145,9 +245,9 @@ describe('阶段5 表单与通知', () => {
     ).rejects.toThrow()
   })
 
-  it('Server Action:honeypot 命中 → 静默成功、不写库', async () => {
+  it('Server Action:honeypot(hp 字段)命中 → 静默成功、不写库', async () => {
     const before = (await payload.count({ collection: 'inquiries', overrideAccess: true })).totalDocs
-    const res = await submitInquiry({ ok: false }, fd({ website: 'bot', name: 'B', email: 'b@p5.test' }))
+    const res = await submitInquiry({ ok: false }, fd({ hp: 'bot', name: 'B', email: 'b@p5.test' }))
     expect(res.ok).toBe(true)
     const after = (await payload.count({ collection: 'inquiries', overrideAccess: true })).totalDocs
     expect(after).toBe(before) // 未新增
@@ -156,6 +256,18 @@ describe('阶段5 表单与通知', () => {
   it('Server Action:提交过快(时间戳)→ invalid', async () => {
     const res = await submitInquiry({ ok: false }, fd({ ts: String(Date.now()), name: 'B', email: 'b@p5.test' }))
     expect(res).toEqual({ ok: false, error: 'invalid' })
+  })
+
+  it('Server Action:无效字段在触达限流前即返回 invalid,且不消耗限流额度', async () => {
+    // 限流在 action 里通过 headers() 取 IP;若限流早于校验,headers 必被调用。
+    // ts 过关(3s 前)但 email 非法 → 校验先拦下 → headers 应「从未被调用」= 无效提交不占额度。
+    vi.mocked(headers).mockClear()
+    const res = await submitInquiry(
+      { ok: false },
+      fd({ ts: String(Date.now() - 3000), name: '', email: 'bad', consent: 'true' }),
+    )
+    expect(res.error).toBe('invalid')
+    expect(headers).not.toHaveBeenCalled() // 未触达限流 → 无效提交不消耗额度
   })
 
   it('限流:同 IP 达阈后被拒,进入新窗口后恢复', async () => {
